@@ -4,12 +4,12 @@
 
 [workspace]
 
-resolver= "2"
+resolver= "3"
 
 members = [
     "tockloader-cli",
     "tock-process-console", 
     "tbf-parser",
     "tockloader-lib",
-    "tock-ui",
+    "tock-ui/src-tauri",
 ]
