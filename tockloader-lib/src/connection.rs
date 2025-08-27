@@ -7,7 +7,7 @@ use tokio::io::AsyncWriteExt;
 use tokio_serial::{FlowControl, Parity, SerialPort, SerialStream, StopBits};
 
 use crate::errors::TockloaderError;
-
+use log::info;
 pub struct ProbeTargetInfo {
     pub chip: String,
     pub core: usize,
@@ -75,16 +75,10 @@ impl ProbeRSConnection {
 #[async_trait]
 impl Connection for ProbeRSConnection {
     async fn open(&mut self) -> Result<(), TockloaderError> {
-        let probe = self
-            .debug_probe
-            .open()
-            .map_err(TockloaderError::ProbeRsInitializationError)?;
+        let probe = self.debug_probe.open()?;
 
-        self.session = Some(
-            probe
-                .attach(&self.target_info.chip, Permissions::default())
-                .map_err(TockloaderError::ProbeRsCommunicationError)?,
-        );
+        self.session = Some(probe.attach(&self.target_info.chip, Permissions::default())?);
+        info!("ProbeRS connection opened succesfully.");
 
         Ok(())
     }
@@ -92,6 +86,7 @@ impl Connection for ProbeRSConnection {
     async fn close(&mut self) -> Result<(), TockloaderError> {
         // Session implements Drop, so we don't need to explicitly close it.
         self.session = None;
+        info!("ProbeRS connection closed.");
         Ok(())
     }
 
@@ -117,6 +112,9 @@ impl SerialConnection {
             port,
         }
     }
+    pub fn into_inner_stream(self) -> Option<SerialStream> {
+        self.stream
+    }
 }
 
 #[async_trait]
@@ -128,24 +126,24 @@ impl Connection for SerialConnection {
             .flow_control(self.target_info.flow_control)
             .timeout(self.target_info.timeout);
 
-        let mut stream =
-            SerialStream::open(&builder).map_err(TockloaderError::SerialInitializationError)?;
+        let mut stream = SerialStream::open(&builder)?;
 
-        stream
-            .write_request_to_send(self.target_info.request_to_send)
-            .map_err(TockloaderError::SerialInitializationError)?;
-        stream
-            .write_data_terminal_ready(self.target_info.data_terminal_ready)
-            .map_err(TockloaderError::SerialInitializationError)?;
+        stream.write_request_to_send(self.target_info.request_to_send)?;
+        stream.write_data_terminal_ready(self.target_info.data_terminal_ready)?;
 
         self.stream = Some(stream);
+        info!("Serial connection opened succesfully.");
         Ok(())
     }
 
     async fn close(&mut self) -> Result<(), TockloaderError> {
         if let Some(mut stream) = self.stream.take() {
-            stream.shutdown().await?;
+            stream
+                .shutdown()
+                .await
+                .map_err(|e| TockloaderError::Serial(e.into()))?;
         }
+        info!("Serial connection closed.");
         Ok(())
     }
 

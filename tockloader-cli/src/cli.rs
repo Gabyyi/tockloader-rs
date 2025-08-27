@@ -14,9 +14,13 @@ pub fn make_cli() -> Command {
         .version(crate_version!())
         .subcommand_required(true)
         .subcommands(get_subcommands())
-        .args([
-            arg!(--debug "Print additional debugging information").action(clap::ArgAction::SetTrue)
-        ])
+        .arg(
+            arg!(--"log-level" <LEVEL>)
+                .required(false)
+                .value_parser(["error", "warn", "info", "debug", "trace"])
+                .default_value("info")
+                .global(true),
+        )
     // Note: arg_require_else_help will trigger the help command if no argument/subcommand is given.
     // This means that the --debug flag will not trigger the help menu, even if alone it does nothing.
 }
@@ -71,6 +75,10 @@ fn get_channel_args() -> Vec<clap::Arg> {
         .collect::<Vec<_>>();
 
     vec![
+        // TODO(george-cosma): Change default to pconsole when new format is implemented and adopted into tock
+        arg!(--protocol <PROTOCOL> "Choose between legacy and pconsole protocol")
+            .default_value("legacy")
+            .value_parser(["legacy", "pconsole"]),
         arg!(--serial "Use the serial bootloader to flash")
             .action(clap::ArgAction::SetTrue)
             .conflicts_with_all(probe_args_ids.clone().collect::<Vec<_>>()),

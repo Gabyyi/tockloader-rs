@@ -72,7 +72,11 @@ fn get_board_settings(user_options: &ArgMatches) -> BoardSettings {
 }
 
 fn using_serial(user_options: &ArgMatches) -> bool {
+    // TODO: refactor this in the future
     *user_options.get_one::<bool>("serial").unwrap_or(&false)
+        || user_options
+            .get_one::<String>("protocol")
+            .is_some_and(|p| p == "legacy")
 }
 
 fn get_known_board(user_options: &ArgMatches) -> Option<Box<dyn KnownBoard>> {
@@ -130,12 +134,59 @@ async fn main() -> Result<()> {
     let mut cmd = cli::make_cli();
     let matches = cmd.get_matches_mut();
 
+    let user_level = matches
+        .get_one::<String>("log-level")
+        .map(String::as_str)
+        .unwrap();
+
+    let mut builder = env_logger::Builder::new();
+
+    let cli_level = match user_level {
+        "error" => log::LevelFilter::Error,
+        "warn" => log::LevelFilter::Warn,
+        "info" => log::LevelFilter::Info,
+        "debug" => log::LevelFilter::Debug,
+        "trace" => log::LevelFilter::Trace,
+        level => panic!("Unknown log level: {}", level),
+    };
+
+    builder.filter_level(log::LevelFilter::Off);
+    builder.filter_module("tockloader-lib", cli_level);
+    builder.filter_module("tockloader", cli_level);
+
+    builder.init();
+
     match matches.subcommand() {
         Some(("listen", sub_matches)) => {
             cli::validate(&mut cmd, sub_matches);
-            tock_process_console::run()
-                .await
-                .context("Failed to run console.")?;
+            let protocol = sub_matches
+                .get_one::<String>("protocol")
+                .map(String::as_str)
+                .unwrap();
+            match protocol {
+                "legacy" => {
+                    let conn = open_connection(sub_matches).await?;
+                    match conn {
+                        TockloaderConnection::ProbeRS(_) => panic!("Cannot establish connection."),
+                        TockloaderConnection::Serial(serial_connection) => {
+                            tock_process_console::legacy::run(
+                                serial_connection
+                                    .into_inner_stream()
+                                    .expect("Expected board to be connected."),
+                            )
+                            .await;
+                        }
+                    }
+                }
+                "pconsole" => {
+                    tock_process_console::pconsole::run()
+                        .await
+                        .context("Failed to run console.")?;
+                }
+                _ => {
+                    panic!("Invalid protocol");
+                }
+            }
         }
         Some(("list", sub_matches)) => {
             cli::validate(&mut cmd, sub_matches);
